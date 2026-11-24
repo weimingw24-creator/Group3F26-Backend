@@ -26,10 +26,11 @@ git switch -c task/20-start-trip
 ## 3. 提交信息
 
 ```
-#20 add POST /api/analytics/start with vehicle ownership check
+AB#20 add POST /api/analytics/start with vehicle ownership check
 ```
 
-- 开头写 Task 编号，Azure Boards 会自动把 commit 关联到该 Task（也可写 `AB#20`）。
+- **必须写 `AB#20` 这种格式**，Azure Boards 的 GitHub App 只认 `AB#<工作项编号>`，会把 commit 挂到对应 Task 的 Development 链接下；裸写的 `#20` 会被当成 GitHub issue。
+- 一行说清"做了什么"，不写"update""fix bug"。
 - 一行说清"做了什么"，不写"update""fix bug"。
 - 一个 commit 只做一件事；格式化、改文案单独提交。
 
@@ -62,7 +63,7 @@ git config core.hooksPath .githooks
 ## 5. PR 规则
 
 - 一个 PR 只对应一个 Task，改动 ≤ 300 行（超了拆）。
-- 标题：`#20 Start trip endpoint`；描述用 `pull_request_template.md`。
+- 标题：`AB#20 Start trip endpoint`；描述用 `pull_request_template.md`。
 - 必须写"怎么验证的"：跑了哪些测试、浏览器点了哪几步、贴截图或日志。
 - 合并方式统一 **Squash**，合并后删分支。
 - 合并后把 Task 拖到 Done；PBI 的所有 Task Done 才关 PBI。
@@ -86,7 +87,7 @@ git config core.hooksPath .githooks
 git switch main && git pull && git switch -c task/20-start-trip
 
 # 提交
-git add -A && git commit -m "#20 add start endpoint"
+git add -A && git commit -m "AB#20 add start endpoint"
 
 # 推送前自检
 powershell -ExecutionPolicy Bypass -File .\verify.ps1
