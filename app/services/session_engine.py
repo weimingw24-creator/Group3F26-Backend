@@ -22,6 +22,7 @@ from datetime import datetime
 from typing import Any
 
 from app.models.session import DriverSession, TripStatus
+from app.models.snapshot import ScoreSnapshot
 
 _logger = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ class ActiveSession:
     rule_set: Any
     samples: list[Any] = field(default_factory=list)
     last_sample_time: datetime = field(default_factory=datetime.now)
-    last_dimension: Any | None = None
+    last_dimension: ScoreSnapshot | None = None
 
     def __post_init__(self) -> None:
         self.last_sample_time = self.session.started_at
@@ -134,7 +135,7 @@ class SessionEngine:
         )
         return session
 
-    async def advance(self, session_id: str) -> Any | None:
+    async def advance(self, session_id: str) -> ScoreSnapshot | None:
         """推进当前会话：产生一个新样本、重算评分、写入存储。"""
         active = self._active.get(session_id)
         if active is None:
@@ -207,7 +208,7 @@ class SessionEngine:
         )
         return active.session
 
-    async def get_latest(self, session_id: str) -> Any | None:
+    async def get_latest(self, session_id: str) -> ScoreSnapshot | None:
         """获取某会话的最新评分维度：先看内存，再回落到存储层。"""
         active = self._active.get(session_id)
         if active is not None and active.last_dimension is not None:
