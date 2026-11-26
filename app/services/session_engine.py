@@ -6,7 +6,7 @@
   1. 驾驶员点击“开始记录” → 创建行程（关联车辆，状态 Active）
   2. GPS 开始逐条读取 mock 数据（MockGpsDataService）
   3. 业务逻辑（ScoringService）按报告 Sec 10 规则计算风险分/类别
-  4. 评分快照写入存储（ScoreStorageService）
+  4. 评分维度（ScoreDimension）写入存储（ScoreStorageService）
   5. 前端通过 API 从存储层读取最新评分并展示
 
 依赖均通过构造函数注入，便于替换成 MongoDB 实现或测试替身。
@@ -41,7 +41,7 @@ class ActiveSession:
     rule_set: Any
     samples: list[Any] = field(default_factory=list)
     last_sample_time: datetime = field(default_factory=datetime.now)
-    last_snapshot: Any | None = None
+    last_dimension: Any | None = None
 
     def __post_init__(self) -> None:
         self.last_sample_time = self.session.started_at
@@ -64,7 +64,7 @@ class SessionEngine:
         :param gps: MockGpsDataService，需有 reset()（可选）与 next_sample(timestamp, step_seconds)
         :param dimensions: MockDimensionProvider，需有 get_rule_set()
         :param scoring: ScoringService，需有 compute_score(session_id, rule_set, samples, started_at, now)
-        :param storage: ScoreStorageService，需有 save_session / save_snapshot / get_latest_snapshot / get_recent_sessions
+        :param storage: ScoreStorageService，需有 save_session / save_dimension / get_latest_dimension / get_recent_sessions
         :param logger: 日志器，缺省用模块 logger
         """
         self._gps = gps
@@ -114,7 +114,7 @@ class SessionEngine:
         first = await _resolve(self._gps.next_sample(session.started_at, 1.0))
         active.samples.append(first)
 
-        snapshot = await _resolve(
+        dimension = await _resolve(
             self._scoring.compute_score(
                 session.session_id,
                 active.rule_set,
@@ -123,8 +123,8 @@ class SessionEngine:
                 datetime.now(),
             )
         )
-        active.last_snapshot = snapshot
-        await _resolve(self._storage.save_snapshot(snapshot))
+        active.last_dimension = dimension
+        await _resolve(self._storage.save_dimension(dimension))
 
         self._logger.info(
             "Trip %s started for %s (vehicle %s).",
@@ -150,7 +150,7 @@ class SessionEngine:
         if len(active.samples) > self.MAX_SAMPLES:
             del active.samples[: len(active.samples) - self.MAX_SAMPLES]
 
-        snapshot = await _resolve(
+        dimension = await _resolve(
             self._scoring.compute_score(
                 session_id,
                 active.rule_set,
@@ -159,16 +159,16 @@ class SessionEngine:
                 now,
             )
         )
-        active.last_snapshot = snapshot
+        active.last_dimension = dimension
 
         # 同步会话状态并落库
-        active.session.sample_count = getattr(snapshot, "sample_count", len(active.samples))
-        active.session.duration_seconds = getattr(snapshot, "elapsed_seconds", 0.0)
+        active.session.sample_count = getattr(dimension, "sample_count", len(active.samples))
+        active.session.duration_seconds = getattr(dimension, "elapsed_seconds", 0.0)
 
         await _resolve(self._storage.save_session(active.session))
-        await _resolve(self._storage.save_snapshot(snapshot))
+        await _resolve(self._storage.save_dimension(dimension))
 
-        return snapshot
+        return dimension
 
     async def end_session(self, session_id: str) -> DriverSession | None:
         """结束会话（报告 UC05：重复 End 不重复结算），计算最终风险分并落库。"""
@@ -177,7 +177,7 @@ class SessionEngine:
             return None
 
         now = datetime.now()
-        snapshot = await _resolve(
+        dimension = await _resolve(
             self._scoring.compute_score(
                 session_id,
                 active.rule_set,
@@ -186,18 +186,18 @@ class SessionEngine:
                 now,
             )
         )
-        active.last_snapshot = snapshot
+        active.last_dimension = dimension
 
         active.session.is_active = False
         active.session.status = TripStatus.COMPLETED
         active.session.ended_at = now
-        active.session.final_score = getattr(snapshot, "overall_score", None)
-        active.session.risk_category = getattr(snapshot, "risk_category", None)
-        active.session.sample_count = getattr(snapshot, "sample_count", len(active.samples))
-        active.session.duration_seconds = getattr(snapshot, "elapsed_seconds", 0.0)
+        active.session.final_score = getattr(dimension, "overall_score", None)
+        active.session.risk_category = getattr(dimension, "risk_category", None)
+        active.session.sample_count = getattr(dimension, "sample_count", len(active.samples))
+        active.session.duration_seconds = getattr(dimension, "elapsed_seconds", 0.0)
 
         await _resolve(self._storage.save_session(active.session))
-        await _resolve(self._storage.save_snapshot(snapshot))
+        await _resolve(self._storage.save_dimension(dimension))
 
         self._logger.info(
             "Trip %s ended with risk %s (%s).",
@@ -208,11 +208,11 @@ class SessionEngine:
         return active.session
 
     async def get_latest(self, session_id: str) -> Any | None:
-        """获取某会话的最新评分快照：先看内存，再回落到存储层。"""
+        """获取某会话的最新评分维度：先看内存，再回落到存储层。"""
         active = self._active.get(session_id)
-        if active is not None and active.last_snapshot is not None:
-            return active.last_snapshot
-        return await _resolve(self._storage.get_latest_snapshot(session_id))
+        if active is not None and active.last_dimension is not None:
+            return active.last_dimension
+        return await _resolve(self._storage.get_latest_dimension(session_id))
 
     async def get_recent_sessions(
         self, limit: int = 20, driver_name: str | None = None
